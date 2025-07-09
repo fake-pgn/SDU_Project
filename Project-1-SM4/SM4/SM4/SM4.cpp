@@ -1,6 +1,7 @@
 ﻿#include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <immintrin.h>
 #include <chrono>
 
 using TimePoint = std::chrono::steady_clock::time_point;
@@ -54,19 +55,24 @@ public:
             k[i] ^= FK[i];
         }
 
-        // 密钥扩展
-        for (int i = 0; i < 32; i++) {
-            tmp = k[1] ^ k[2] ^ k[3] ^ CK[i];
-            tmp = (SBox[tmp >> 24] << 24) |
-                (SBox[(tmp >> 16) & 0xFF] << 16) |
-                (SBox[(tmp >> 8) & 0xFF] << 8) |
-                SBox[tmp & 0xFF];
-            round_keys[i] = k[0] ^ tmp ^ RotateLeft(tmp, 13) ^ RotateLeft(tmp, 23);
-            k[0] = k[1];
-            k[1] = k[2];
-            k[2] = k[3];
-            k[3] = round_keys[i];
-        }
+        // 完全展开密钥扩展
+#define KEY_EXPANSION(iter) \
+            tmp = k[1] ^ k[2] ^ k[3] ^ CK[iter]; \
+            tmp = (SBox[tmp >> 24] << 24) | \
+                  (SBox[(tmp >> 16) & 0xFF] << 16) | \
+                  (SBox[(tmp >> 8) & 0xFF] << 8) | \
+                  SBox[tmp & 0xFF]; \
+            round_keys[iter] = k[0] ^ tmp ^ RotateLeft(tmp, 13) ^ RotateLeft(tmp, 23); \
+            k[0] = k[1]; k[1] = k[2]; k[2] = k[3]; k[3] = round_keys[iter];
+
+        KEY_EXPANSION(0); KEY_EXPANSION(1); KEY_EXPANSION(2); KEY_EXPANSION(3);
+        KEY_EXPANSION(4); KEY_EXPANSION(5); KEY_EXPANSION(6); KEY_EXPANSION(7);
+        KEY_EXPANSION(8); KEY_EXPANSION(9); KEY_EXPANSION(10); KEY_EXPANSION(11);
+        KEY_EXPANSION(12); KEY_EXPANSION(13); KEY_EXPANSION(14); KEY_EXPANSION(15);
+        KEY_EXPANSION(16); KEY_EXPANSION(17); KEY_EXPANSION(18); KEY_EXPANSION(19);
+        KEY_EXPANSION(20); KEY_EXPANSION(21); KEY_EXPANSION(22); KEY_EXPANSION(23);
+        KEY_EXPANSION(24); KEY_EXPANSION(25); KEY_EXPANSION(26); KEY_EXPANSION(27);
+        KEY_EXPANSION(28); KEY_EXPANSION(29); KEY_EXPANSION(30); KEY_EXPANSION(31);
     }
 
     static void ProcessBlock(const uint8_t* input, uint8_t* output,
@@ -79,28 +85,32 @@ public:
                 (input[i * 4 + 2] << 8) | input[i * 4 + 3];
         }
 
-        // 32轮加密/解密
-        for (int i = 0; i < 32; i++) {
-            uint32_t rk = decrypt ? round_keys[31 - i] : round_keys[i];
-            uint32_t tmp = state[1] ^ state[2] ^ state[3] ^ rk;
+        // 完全展开32轮加密/解密
+#define ROUND(iter) \
+            { \
+                uint32_t rk = decrypt ? round_keys[31 - iter] : round_keys[iter]; \
+                uint32_t tmp = state[1] ^ state[2] ^ state[3] ^ rk; \
+                tmp = (SBox[tmp >> 24] << 24) | \
+                      (SBox[(tmp >> 16) & 0xFF] << 16) | \
+                      (SBox[(tmp >> 8) & 0xFF] << 8) | \
+                      SBox[tmp & 0xFF]; \
+                tmp = tmp ^ RotateLeft(tmp, 2) ^ RotateLeft(tmp, 10) ^ \
+                      RotateLeft(tmp, 18) ^ RotateLeft(tmp, 24); \
+                uint32_t new_state = state[0] ^ tmp; \
+                state[0] = state[1]; \
+                state[1] = state[2]; \
+                state[2] = state[3]; \
+                state[3] = new_state; \
+            }
 
-            // SBox替换
-            tmp = (SBox[tmp >> 24] << 24) |
-                (SBox[(tmp >> 16) & 0xFF] << 16) |
-                (SBox[(tmp >> 8) & 0xFF] << 8) |
-                SBox[tmp & 0xFF];
-
-            // 线性变换
-            tmp = tmp ^ RotateLeft(tmp, 2) ^ RotateLeft(tmp, 10) ^
-                RotateLeft(tmp, 18) ^ RotateLeft(tmp, 24);
-
-            // 更新状态
-            uint32_t new_state = state[0] ^ tmp;
-            state[0] = state[1];
-            state[1] = state[2];
-            state[2] = state[3];
-            state[3] = new_state;
-        }
+        ROUND(0); ROUND(1); ROUND(2); ROUND(3);
+        ROUND(4); ROUND(5); ROUND(6); ROUND(7);
+        ROUND(8); ROUND(9); ROUND(10); ROUND(11);
+        ROUND(12); ROUND(13); ROUND(14); ROUND(15);
+        ROUND(16); ROUND(17); ROUND(18); ROUND(19);
+        ROUND(20); ROUND(21); ROUND(22); ROUND(23);
+        ROUND(24); ROUND(25); ROUND(26); ROUND(27);
+        ROUND(28); ROUND(29); ROUND(30); ROUND(31);
 
         // 最终置换
         uint32_t temp = state[0];
@@ -130,6 +140,7 @@ void RunPerformanceTest(uint8_t* data, const uint32_t* round_keys,
     uint8_t temp[16];
     memcpy(temp, data, 16);
 
+    // 预热
     for (int i = 0; i < 1000; i++) {
         SM4Cipher::ProcessBlock(temp, data, round_keys, mode);
     }
