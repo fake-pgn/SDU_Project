@@ -42,105 +42,213 @@ constexpr uint8_t SBox[256] = {
     0x18, 0xF0, 0x7D, 0xEC, 0x3A, 0xDC, 0x4D, 0x20, 0x79, 0xEE, 0x5F, 0x3E,
     0xD7, 0xCB, 0x39, 0x48 };
 
+// 位操作宏
+#define CIRCULAR_SHIFT(val, bits) (((val) << (bits)) | ((val) >> (32 - (bits))))
+#define VEC_ROTATE(vec, n) _mm_xor_si128(_mm_slli_epi32(vec, n), _mm_srli_epi32(vec, 32 - (n)))
+
+// 并行异或操作
+#define VEC_XOR3(a, b, c) _mm_xor_si128(a, _mm_xor_si128(b, c))
+#define VEC_XOR4(a, b, c, d) _mm_xor_si128(a, VEC_XOR3(b, c, d))
+#define VEC_XOR5(a, b, c, d, e) _mm_xor_si128(a, VEC_XOR4(b, c, d, e))
+#define VEC_XOR6(a, b, c, d, e, f) _mm_xor_si128(a, VEC_XOR5(b, c, d, e, f))
+
+// 密钥加载
+#define EXPAND_KEY(idx) \
+    k[idx] = (key[(idx)*4] << 24) | (key[(idx)*4+1] << 16) | \
+             (key[(idx)*4+2] << 8) | key[(idx)*4+3]; \
+    k[idx] ^= FK[idx]
+
+// 密钥扩展迭代
+#define KEY_EXPANSION(iter) \
+    tmp = k[1] ^ k[2] ^ k[3] ^ CK[iter]; \
+    tmp = (SBox[tmp >> 24] << 24) | \
+          (SBox[(tmp >> 16) & 0xFF] << 16) | \
+          (SBox[(tmp >> 8) & 0xFF] << 8) | \
+          SBox[tmp & 0xFF]; \
+    round_keys[iter] = k[0] ^ tmp ^ CIRCULAR_SHIFT(tmp, 13) ^ CIRCULAR_SHIFT(tmp, 23); \
+    k[0] = k[1]; k[1] = k[2]; k[2] = k[3]; k[3] = round_keys[iter]
+
+// 加密轮迭代
+#define CIPHER_ROUND(iter, mode) \
+    k_vec = _mm_set1_epi32((mode) ? round_keys[31 - (iter)] : round_keys[iter]); \
+    temp_vec = VEC_XOR4(state[1], state[2], state[3], k_vec); \
+    temp_vec = CryptoPrimitives::TransformSBox(temp_vec); \
+    temp_vec = VEC_XOR6(state[0], temp_vec, VEC_ROTATE(temp_vec, 2), \
+        VEC_ROTATE(temp_vec, 10), VEC_ROTATE(temp_vec, 18), \
+        VEC_ROTATE(temp_vec, 24)); \
+    state[0] = state[1]; state[1] = state[2]; \
+    state[2] = state[3]; state[3] = temp_vec
+
+namespace CryptoPrimitives {
+
+    // 有限域变换矩阵
+    const __m128i AES_Forward_Matrix = _mm_set_epi8(
+        0x22, 0x58, 0x1a, 0x60, 0x02, 0x78, 0x3a, 0x40,
+        0x62, 0x18, 0x5a, 0x20, 0x42, 0x38, 0x7a, 0x00);
+
+    const __m128i AES_Reverse_Matrix = _mm_set_epi8(
+        0xe2, 0x28, 0x95, 0x5f, 0x69, 0xa3, 0x1e, 0xd4,
+        0x36, 0xfc, 0x41, 0x8b, 0xbd, 0x77, 0xca, 0x00);
+
+    const __m128i SM4_Forward_Matrix = _mm_set_epi8(
+        0x14, 0x07, 0xc6, 0xd5, 0x6c, 0x7f, 0xbe, 0xad,
+        0xb9, 0xaa, 0x6b, 0x78, 0xc1, 0xd2, 0x13, 0x00);
+
+    const __m128i SM4_Reverse_Matrix = _mm_set_epi8(
+        0xd8, 0xb8, 0xfa, 0x9a, 0xc5, 0xa5, 0xe7, 0x87,
+        0x5f, 0x3f, 0x7d, 0x1d, 0x42, 0x22, 0x60, 0x00);
+
+    // 矩阵乘法变换
+    inline __m128i MatrixMul(__m128i x, __m128i upper, __m128i lower) {
+        return _mm_xor_si128(
+            _mm_shuffle_epi8(lower, _mm_and_si128(x, _mm_set1_epi32(0x0F0F0F0F))),
+            _mm_shuffle_epi8(upper, _mm_and_si128(_mm_srli_epi16(x, 4), _mm_set1_epi32(0x0F0F0F0F)))
+        );
+    }
+
+    // SBox转换（使用AES-NI）
+    inline __m128i TransformSBox(__m128i input) {
+        const __m128i shuffle_mask = _mm_set_epi8(
+            0x03, 0x06, 0x09, 0x0c, 0x0f, 0x02, 0x05, 0x08,
+            0x0b, 0x0e, 0x01, 0x04, 0x07, 0x0a, 0x0d, 0x00);
+
+        input = _mm_shuffle_epi8(input, shuffle_mask);
+        input = _mm_xor_si128(
+            MatrixMul(input, AES_Forward_Matrix, AES_Reverse_Matrix),
+            _mm_set1_epi8(0x23));
+
+        input = _mm_aesenclast_si128(input, _mm_setzero_si128());
+
+        return _mm_xor_si128(
+            MatrixMul(input, SM4_Forward_Matrix, SM4_Reverse_Matrix),
+            _mm_set1_epi8(0x3B));
+    }
+
+} // namespace CryptoPrimitives
+
 class SM4Cipher {
 public:
     static void Gen_Round_Keys(const uint8_t* key, uint32_t* round_keys) {
         uint32_t k[4];
         uint32_t tmp;
 
-        // 加载初始密钥
-        for (int i = 0; i < 4; i++) {
-            k[i] = (key[i * 4] << 24) | (key[i * 4 + 1] << 16) |
-                (key[i * 4 + 2] << 8) | key[i * 4 + 3];
-            k[i] ^= FK[i];
-        }
+        EXPAND_KEY(0);
+        EXPAND_KEY(1);
+        EXPAND_KEY(2);
+        EXPAND_KEY(3);
 
         // 完全展开密钥扩展
-#define KEY_EXPANSION(iter) \
-            tmp = k[1] ^ k[2] ^ k[3] ^ CK[iter]; \
-            tmp = (SBox[tmp >> 24] << 24) | \
-                  (SBox[(tmp >> 16) & 0xFF] << 16) | \
-                  (SBox[(tmp >> 8) & 0xFF] << 8) | \
-                  SBox[tmp & 0xFF]; \
-            round_keys[iter] = k[0] ^ tmp ^ RotateLeft(tmp, 13) ^ RotateLeft(tmp, 23); \
-            k[0] = k[1]; k[1] = k[2]; k[2] = k[3]; k[3] = round_keys[iter];
-
-        KEY_EXPANSION(0); KEY_EXPANSION(1); KEY_EXPANSION(2); KEY_EXPANSION(3);
-        KEY_EXPANSION(4); KEY_EXPANSION(5); KEY_EXPANSION(6); KEY_EXPANSION(7);
-        KEY_EXPANSION(8); KEY_EXPANSION(9); KEY_EXPANSION(10); KEY_EXPANSION(11);
-        KEY_EXPANSION(12); KEY_EXPANSION(13); KEY_EXPANSION(14); KEY_EXPANSION(15);
-        KEY_EXPANSION(16); KEY_EXPANSION(17); KEY_EXPANSION(18); KEY_EXPANSION(19);
-        KEY_EXPANSION(20); KEY_EXPANSION(21); KEY_EXPANSION(22); KEY_EXPANSION(23);
-        KEY_EXPANSION(24); KEY_EXPANSION(25); KEY_EXPANSION(26); KEY_EXPANSION(27);
-        KEY_EXPANSION(28); KEY_EXPANSION(29); KEY_EXPANSION(30); KEY_EXPANSION(31);
+        KEY_EXPANSION(0);
+        KEY_EXPANSION(1);
+        KEY_EXPANSION(2);
+        KEY_EXPANSION(3);
+        KEY_EXPANSION(4);
+        KEY_EXPANSION(5);
+        KEY_EXPANSION(6);
+        KEY_EXPANSION(7);
+        KEY_EXPANSION(8);
+        KEY_EXPANSION(9);
+        KEY_EXPANSION(10);
+        KEY_EXPANSION(11);
+        KEY_EXPANSION(12);
+        KEY_EXPANSION(13);
+        KEY_EXPANSION(14);
+        KEY_EXPANSION(15);
+        KEY_EXPANSION(16);
+        KEY_EXPANSION(17);
+        KEY_EXPANSION(18);
+        KEY_EXPANSION(19);
+        KEY_EXPANSION(20);
+        KEY_EXPANSION(21);
+        KEY_EXPANSION(22);
+        KEY_EXPANSION(23);
+        KEY_EXPANSION(24);
+        KEY_EXPANSION(25);
+        KEY_EXPANSION(26);
+        KEY_EXPANSION(27);
+        KEY_EXPANSION(28);
+        KEY_EXPANSION(29);
+        KEY_EXPANSION(30);
+        KEY_EXPANSION(31);
     }
 
     static void ProcessBlock(const uint8_t* input, uint8_t* output,
-        const uint32_t* round_keys, bool decrypt) {
-        uint32_t state[4];
+        const uint32_t* round_keys, bool decrypt_mode) {
+        __m128i state[4];
+        __m128i temp_vec, k_vec;
+        const __m128i shuffle_vector = _mm_setr_epi8(
+            3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12);
 
-        // 加载输入
+        __m128i data_block = _mm_loadu_si128(reinterpret_cast<const __m128i*>(input));
+
+        // 初始数据重组
+        state[0] = _mm_unpacklo_epi64(_mm_unpacklo_epi32(data_block, data_block),
+            _mm_unpacklo_epi32(data_block, data_block));
+        state[1] = _mm_unpackhi_epi64(_mm_unpacklo_epi32(data_block, data_block),
+            _mm_unpacklo_epi32(data_block, data_block));
+        state[2] = _mm_unpacklo_epi64(_mm_unpackhi_epi32(data_block, data_block),
+            _mm_unpackhi_epi32(data_block, data_block));
+        state[3] = _mm_unpackhi_epi64(_mm_unpackhi_epi32(data_block, data_block),
+            _mm_unpackhi_epi32(data_block, data_block));
+
         for (int i = 0; i < 4; i++) {
-            state[i] = (input[i * 4] << 24) | (input[i * 4 + 1] << 16) |
-                (input[i * 4 + 2] << 8) | input[i * 4 + 3];
+            state[i] = _mm_shuffle_epi8(state[i], shuffle_vector);
         }
 
         // 完全展开32轮加密/解密
-#define ROUND(iter) \
-            { \
-                uint32_t rk = decrypt ? round_keys[31 - iter] : round_keys[iter]; \
-                uint32_t tmp = state[1] ^ state[2] ^ state[3] ^ rk; \
-                tmp = (SBox[tmp >> 24] << 24) | \
-                      (SBox[(tmp >> 16) & 0xFF] << 16) | \
-                      (SBox[(tmp >> 8) & 0xFF] << 8) | \
-                      SBox[tmp & 0xFF]; \
-                tmp = tmp ^ RotateLeft(tmp, 2) ^ RotateLeft(tmp, 10) ^ \
-                      RotateLeft(tmp, 18) ^ RotateLeft(tmp, 24); \
-                uint32_t new_state = state[0] ^ tmp; \
-                state[0] = state[1]; \
-                state[1] = state[2]; \
-                state[2] = state[3]; \
-                state[3] = new_state; \
-            }
+        CIPHER_ROUND(0, decrypt_mode);
+        CIPHER_ROUND(1, decrypt_mode);
+        CIPHER_ROUND(2, decrypt_mode);
+        CIPHER_ROUND(3, decrypt_mode);
+        CIPHER_ROUND(4, decrypt_mode);
+        CIPHER_ROUND(5, decrypt_mode);
+        CIPHER_ROUND(6, decrypt_mode);
+        CIPHER_ROUND(7, decrypt_mode);
+        CIPHER_ROUND(8, decrypt_mode);
+        CIPHER_ROUND(9, decrypt_mode);
+        CIPHER_ROUND(10, decrypt_mode);
+        CIPHER_ROUND(11, decrypt_mode);
+        CIPHER_ROUND(12, decrypt_mode);
+        CIPHER_ROUND(13, decrypt_mode);
+        CIPHER_ROUND(14, decrypt_mode);
+        CIPHER_ROUND(15, decrypt_mode);
+        CIPHER_ROUND(16, decrypt_mode);
+        CIPHER_ROUND(17, decrypt_mode);
+        CIPHER_ROUND(18, decrypt_mode);
+        CIPHER_ROUND(19, decrypt_mode);
+        CIPHER_ROUND(20, decrypt_mode);
+        CIPHER_ROUND(21, decrypt_mode);
+        CIPHER_ROUND(22, decrypt_mode);
+        CIPHER_ROUND(23, decrypt_mode);
+        CIPHER_ROUND(24, decrypt_mode);
+        CIPHER_ROUND(25, decrypt_mode);
+        CIPHER_ROUND(26, decrypt_mode);
+        CIPHER_ROUND(27, decrypt_mode);
+        CIPHER_ROUND(28, decrypt_mode);
+        CIPHER_ROUND(29, decrypt_mode);
+        CIPHER_ROUND(30, decrypt_mode);
+        CIPHER_ROUND(31, decrypt_mode);
 
-        ROUND(0); ROUND(1); ROUND(2); ROUND(3);
-        ROUND(4); ROUND(5); ROUND(6); ROUND(7);
-        ROUND(8); ROUND(9); ROUND(10); ROUND(11);
-        ROUND(12); ROUND(13); ROUND(14); ROUND(15);
-        ROUND(16); ROUND(17); ROUND(18); ROUND(19);
-        ROUND(20); ROUND(21); ROUND(22); ROUND(23);
-        ROUND(24); ROUND(25); ROUND(26); ROUND(27);
-        ROUND(28); ROUND(29); ROUND(30); ROUND(31);
-
-        // 最终置换
-        uint32_t temp = state[0];
-        state[0] = state[3];
-        state[3] = temp;
-        temp = state[1];
-        state[1] = state[2];
-        state[2] = temp;
-
-        // 输出
+        // 最终数据重组
         for (int i = 0; i < 4; i++) {
-            output[i * 4] = (state[i] >> 24) & 0xFF;
-            output[i * 4 + 1] = (state[i] >> 16) & 0xFF;
-            output[i * 4 + 2] = (state[i] >> 8) & 0xFF;
-            output[i * 4 + 3] = state[i] & 0xFF;
+            state[i] = _mm_shuffle_epi8(state[i], shuffle_vector);
         }
-    }
 
-private:
-    static uint32_t RotateLeft(uint32_t value, unsigned int count) {
-        return (value << count) | (value >> (32 - count));
+        __m128i result = _mm_unpacklo_epi64(
+            _mm_unpacklo_epi32(state[3], state[2]),
+            _mm_unpacklo_epi32(state[1], state[0]));
+
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(output), result);
     }
 };
 
+// 性能测试函数
 void RunPerformanceTest(uint8_t* data, const uint32_t* round_keys,
     bool mode, const char* operation_name, int iterations = 10000) {
     uint8_t temp[16];
     memcpy(temp, data, 16);
 
-    // 预热
+    
     for (int i = 0; i < 1000; i++) {
         SM4Cipher::ProcessBlock(temp, data, round_keys, mode);
     }
@@ -156,6 +264,7 @@ void RunPerformanceTest(uint8_t* data, const uint32_t* round_keys,
         operation_name, duration / (double)iterations, iterations);
 }
 
+// 数据输出函数
 void DisplayData(const char* label, const uint8_t* data, size_t size) {
     printf("%s:\n", label);
     for (size_t i = 0; i < size; i++) {
