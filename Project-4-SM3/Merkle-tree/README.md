@@ -283,6 +283,7 @@ vector<vector<uint8_t>> generate_data(size_t count, size_t length) {
 下面是详细的存在性证明和不存在证明的详细过程，以另一组数据为例：
 
 存在性证明的证明路径：
+
 ![过程](c.png)
 
 不存在证明的前驱及后继证明：
