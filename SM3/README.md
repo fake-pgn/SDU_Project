@@ -1,58 +1,64 @@
-# SM3 Èí¼þÊµÏÖÓë¶à¼¶ÓÅ»¯ËµÃ÷
+# SM3 è½¯ä»¶å®žçŽ°ä¸Žå¤šçº§ä¼˜åŒ–è¯´æ˜Ž
 
-## ¸ÅÊö
+## æ¦‚è¿°
 
-±¾ÏîÄ¿»ùÓÚ SM3 ¹þÏ£Ëã·¨µÄ **»ù´¡Èí¼þÊµÏÖ**£¬Öð²½ÒýÈë¶à²ã´ÎÓÅ»¯£¨ºêÕ¹¿ª¡¢Ñ­»·Õ¹¿ª¡¢SIMD ÏòÁ¿»¯¡¢¶àÏß³Ì²¢ÐÐ£©£¬ÒÔÌáÉýËã·¨Ö´ÐÐÐ§ÂÊ¡£ÒÔÏÂÎÄµµ½«ÏêÏ¸ËµÃ÷Ëã·¨Ô­Àí¡¢ÓÅ»¯Ë¼Â·¡¢ÊýÑ§ÍÆµ¼¼°¾ßÌå´úÂëÊµÏÖ¡£
-
-
----
-## ÔËÐÐ»·¾³
-
-* ²Ù×÷ÏµÍ³£ºWindows 11 (64-bit)
-* ±àÒëÆ÷£ºVisual Studio 2022 (MSVC, C++14)
-* ´¦ÀíÆ÷£ºIntel Core i7-11800H @ 2.30GHz
-* ÄÚ´æ£º16 GB
-
----
+æœ¬é¡¹ç›®åŸºäºŽ SM3 å“ˆå¸Œç®—æ³•çš„ **åŸºç¡€è½¯ä»¶å®žçŽ°**ï¼Œé€æ­¥å¼•å…¥å¤šå±‚æ¬¡ä¼˜åŒ–ï¼ˆå®å±•å¼€ã€å¾ªçŽ¯å±•å¼€ã€SIMD å‘é‡åŒ–ã€å¤šçº¿ç¨‹å¹¶è¡Œï¼‰ï¼Œä»¥æå‡ç®—æ³•æ‰§è¡Œæ•ˆçŽ‡ã€‚ä»¥ä¸‹æ–‡æ¡£å°†è¯¦ç»†è¯´æ˜Žç®—æ³•åŽŸç†ã€ä¼˜åŒ–æ€è·¯ã€æ•°å­¦æŽ¨å¯¼åŠå…·ä½“ä»£ç å®žçŽ°ã€‚
 
 
 ---
+## è¿è¡ŒçŽ¯å¢ƒ
 
-## SM3 µÄÊµÏÖÓëÓÅ»¯
+* æ“ä½œç³»ç»Ÿï¼šWindows 11 (64-bit)
+* ç¼–è¯‘å™¨ï¼šVisual Studio 2022 (MSVC, C++14)
+* å¤„ç†å™¨ï¼šIntel Core i7-11800H @ 2.30GHz
+* å†…å­˜ï¼š16 GB
 
-SM3 ÊÇÖÐ¹ú¹ú¼ÒÃÜÂë¾Ö·¢²¼µÄÔÓ´ÕËã·¨£¬Êä³ö 256 Î»ÕªÒª¡£ÆäºËÐÄÓÉÏûÏ¢Ìî³ä¡¢ÏûÏ¢À©Õ¹¡¢²¼¶ûÖÃ»»ºÍÏßÐÔÑ¹Ëõº¯Êý¹¹³É¡£
+---
 
-### ÏûÏ¢À©Õ¹
-½«ÊäÈë·Ö×é `M[i]` À©Õ¹Îª 68 ¸ö `W[j]` ºÍ 64 ¸ö `W1[j]`£º
 
-W[j] = P1(W[j-16] XOR W[j-9] XOR (W[j-3] <<< 15)) XOR (W[j-13] <<< 7) XOR W[j-6]
+---
 
-W1[j] = W[j] XOR W[j+4]
+## SM3 çš„å®žçŽ°ä¸Žä¼˜åŒ–
 
-### Ñ¹Ëõº¯Êý
-¶ÔÃ¿¸ö·Ö×éÊ¹ÓÃ 64 ÂÖµü´ú£º
+SM3 æ˜¯ä¸­å›½å›½å®¶å¯†ç å±€å‘å¸ƒçš„æ‚å‡‘ç®—æ³•ï¼Œè¾“å‡º 256 ä½æ‘˜è¦ã€‚å…¶æ ¸å¿ƒç”±æ¶ˆæ¯å¡«å……ã€æ¶ˆæ¯æ‰©å±•ã€å¸ƒå°”ç½®æ¢å’Œçº¿æ€§åŽ‹ç¼©å‡½æ•°æž„æˆã€‚
 
-SS1 = ((A <<< 12) + E + (T_j <<< (j mod 32))) <<< 7
+### æ¶ˆæ¯æ‰©å±•
+å°†è¾“å…¥åˆ†ç»„ `M[i]` æ‰©å±•ä¸º 68 ä¸ª `W[j]` å’Œ 64 ä¸ª `W1[j]`ï¼š
 
-SS2 = SS1 XOR (A <<< 12)
+$$
+W[j] = P1(W[j-16] \oplus W[j-9] \oplus (W[j-3] \lll 15)) \oplus (W[j-13] \lll 7) \oplus W[j-6]
+$$
 
-TT1 = FF_j(A,B,C) + D + SS2 + W1[j]
+$$
+W1[j] = W[j] \oplus W[j+4]
+$$
 
+### åŽ‹ç¼©å‡½æ•°
+å¯¹æ¯ä¸ªåˆ†ç»„ä½¿ç”¨ 64 è½®è¿­ä»£ï¼š
+
+$$
+SS1 = (A \lll 12 + E + T_j \lll (j\bmod32)) \lll 7,
+SS2 = SS1 \oplus (A \lll 12)
+$$
+
+$$
+TT1 = FF_j(A,B,C) + D + SS2 + W1[j],
 TT2 = GG_j(E,F,G) + H + SS1 + W[j]
+$$
 
-¸üÐÂ ABCD EFGH ²¢Òì»ò»Ø `state`
+æ›´æ–° ABCD EFGH å¹¶å¼‚æˆ–å›ž `state`
 
 
 
 ---
 
-## »ùÏßÊµÏÖ
+## åŸºçº¿å®žçŽ°
 
 ```cpp
-// Ê¡ÂÔÍ·ÎÄ¼þ...
+// çœç•¥å¤´æ–‡ä»¶...
 void sm3_compress(uint32_t state[8], const uint8_t block[64]) {
     uint32_t W[68], W1[64];
-    // ÏûÏ¢À©Õ¹
+    // æ¶ˆæ¯æ‰©å±•
     for (int i = 0; i < 16; ++i)
         W[i] = load_be32(block + 4*i);
     for (int j = 16; j < 68; ++j)
@@ -61,27 +67,43 @@ void sm3_compress(uint32_t state[8], const uint8_t block[64]) {
     for (int j = 0; j < 64; ++j)
         W1[j] = W[j] ^ W[j+4];
 
-    // 64 ÂÖÑ¹Ëõ
+    // 64 è½®åŽ‹ç¼©
     auto A=state[0], B=state[1], ...;
     for (int j = 0; j < 64; ++j) {
         uint32_t Tj = (j<16?0x79CC4519:0x7A879D8A);
         uint32_t SS1 = ROTL(...);
         // ...
     }
-    // ¸üÐÂ state
+    // æ›´æ–° state
 }
 ```
 
 
 ---
 
-## ÓÅ»¯µãÒ»£ººêÕ¹¿ªÓëÄÚÁªº¯Êý
+## ä¼˜åŒ–ç‚¹ä¸€ï¼šå®å±•å¼€ä¸Žå†…è”å‡½æ•°
 
-### ÓÅ»¯¶¯»ú
+### ä¼˜åŒ–åŠ¨æœº
 
-SM3 ÖÐ¶à´ÎÊ¹ÓÃµÄ»ù±¾ÖÃ»»ºÍ²¼¶ûº¯Êý£¨`ROTL`¡¢`P0`/`P1`¡¢`FF`¡¢`GG`£©Èç¹ûÒÔÆÕÍ¨º¯ÊýÊµÏÖ£¬»á´øÀ´º¯Êýµ÷ÓÃ¿ªÏúºÍ·ÖÖ§ÅÐ¶Ï¡£Í¨¹ýºêÕ¹¿ª¿ÉÒÔ£º¼õÉÙº¯Êýµ÷ÓÃ¿ªÏúºÍ·ÖÖ§ÅÐ¶Ï£¬ÌáÉý±àÒëÆ÷ÄÚÁª¼°ÓÅ»¯Ð§¹û¡£
+SM3 ä¸­å¤šæ¬¡ä½¿ç”¨çš„åŸºæœ¬ç½®æ¢å’Œå¸ƒå°”å‡½æ•°ï¼ˆ`ROTL`ã€`P0`/`P1`ã€`FF`ã€`GG`ï¼‰å¦‚æžœä»¥æ™®é€šå‡½æ•°å®žçŽ°ï¼Œä¼šå¸¦æ¥å‡½æ•°è°ƒç”¨å¼€é”€å’Œåˆ†æ”¯åˆ¤æ–­ã€‚é€šè¿‡å®å±•å¼€å¯ä»¥ï¼šå‡å°‘å‡½æ•°è°ƒç”¨å¼€é”€å’Œåˆ†æ”¯åˆ¤æ–­ï¼Œæå‡ç¼–è¯‘å™¨å†…è”åŠä¼˜åŒ–æ•ˆæžœã€‚
+### æ•°å­¦æŽ¨å¯¼
 
-### ¹Ø¼ü´úÂë
+- **ç½®æ¢å‡½æ•°**  
+  $$P_0(x)=x\oplus(x\lll 9)\oplus(x\lll 17),\quad
+    P_1(x)=x\oplus(x\lll15)\oplus(x\lll23).$$  
+  çº¿æ€§å˜æ¢å¯åˆå¹¶å¤šé‡ç§»ä½ä¸Žå¼‚æˆ–ï¼Œç¼–è¯‘å™¨ä¼šåœ¨å®å±•å¼€åŽä¼˜åŒ–ä¸ºæœ€å°‘æŒ‡ä»¤ã€‚
+
+- **FF/GG**  
+  å®šä¹‰ï¼š
+  
+FFj(x, y, z) =  
+    x âŠ• y âŠ• z                         ; å½“ j < 16  
+    (x âˆ§ y) âˆ¨ (x âˆ§ z) âˆ¨ (y âˆ§ z)       ; å½“ j â‰¥ 16
+  
+GGj(x, y, z) =  
+    x âŠ• y âŠ• z                         ; å½“ j < 16  
+    (x âˆ§ y) âˆ¨ (Â¬x âˆ§ z)                ; å½“ j â‰¥ 16
+### å…³é”®ä»£ç 
 
 ```cpp
 #define ROTL(x,n) (((x)<<(n))|((x)>>(32-(n))))
@@ -93,47 +115,43 @@ SM3 ÖÐ¶à´ÎÊ¹ÓÃµÄ»ù±¾ÖÃ»»ºÍ²¼¶ûº¯Êý£¨`ROTL`¡¢`P0`/`P1`¡¢`FF`¡¢`GG`£©Èç¹ûÒÔÆÕÍ¨º¯Ê
 #define GG1(x,y,z) FF1(x,y,z)
 ```
 
-* **ÄÚÁª**£ººêÖ±½ÓÌæ»»£¬ÎÞº¯Êýµ÷ÓÃ¡£
-* **·ÖÖ§ºÏ²¢**£º`FF`/`GG` Á½ÖÖÐÎÊ½Í¨¹ý `FF0/FF1` ²ð·Ö£¬ÒÆ³ý `j<16` ÅÐ¶ÏµÄ¶îÍâ·ÖÖ§¡£
-
-ÊýÑ§ÍÆµ¼£ºÖÃ»»º¯Êý `P0/P1` ÎªÏßÐÔ±ä»»£¬Ê¹ÓÃÑ­»·²»±äÊ½Õ¹¿ª¿ÉºÏ²¢¶à¸öÒÆÎ»ºÍÒì»ò²Ù×÷¡£
 
 ---
 
-## ÓÅ»¯µã¶þ£ºÑ­»·Õ¹¿ª
+## ä¼˜åŒ–ç‚¹äºŒï¼šå¾ªçŽ¯å±•å¼€
 
-### ÓÅ»¯¶¯»ú
+### ä¼˜åŒ–åŠ¨æœº
 
-¼õÉÙÑ­»·Ìõ¼þÅÐ¶ÏºÍË÷Òý¼ÆËã¿ªÏú£¬ÌáÉýÁ÷Ë®ÏßÍÌÍÂ¡£
+å‡å°‘å¾ªçŽ¯æ¡ä»¶åˆ¤æ–­å’Œç´¢å¼•è®¡ç®—å¼€é”€ï¼Œæå‡æµæ°´çº¿åžåã€‚
 
-### ¹Ø¼ü´úÂë
+### å…³é”®ä»£ç 
 
 ```cpp
-// Õ¹¿ª 4 ÂÖÎªÒ»×é
+// å±•å¼€ 4 è½®ä¸ºä¸€ç»„
 for (int j = 0; j < 64; j += 4) {
-    // ÂÖ 0
+    // è½® 0
     SS1 = calc_SS1(A,E,Tj[j]); SS2 = SS1^(...);
     TT1 = FF(A,B,C)+D+SS2+W1[j]; TT2=...;
     D=C; C=ROTL(B,9); B=A; A=TT1;
-    // ÂÖ 1,2,3 Í¬Àí
+    // è½® 1,2,3 åŒç†
 }
 ```
 
-* **¼õÉÙ `j<64` ÅÐ¶Ï´ÎÊý**£ºÔ­ 64 ´Î -> 16 ´Î¡£
-* **Ë÷Òý¼ÆËãºÏ²¢**£º`j+k` Ö±½ÓÕ¹¿ª£¬²»ÔÙ¶¯Ì¬¼ÆËã¡£
+* **å‡å°‘ `j<64` åˆ¤æ–­æ¬¡æ•°**ï¼šåŽŸ 64 æ¬¡ -> 16 æ¬¡ã€‚
+* **ç´¢å¼•è®¡ç®—åˆå¹¶**ï¼š`j+k` ç›´æŽ¥å±•å¼€ï¼Œä¸å†åŠ¨æ€è®¡ç®—ã€‚
 
 ---
 
-## ÓÅ»¯µãÈý£ºSIMD ÏòÁ¿»¯
+## ä¼˜åŒ–ç‚¹ä¸‰ï¼šSIMD å‘é‡åŒ–
 
-### ÓÅ»¯¶¯»ú
+### ä¼˜åŒ–åŠ¨æœº
 
-ÀûÓÃ x86 SSE/AVX Ö¸ÁîÍ¬Ê±´¦Àí¶à×éÊý¾Ý£¬Ìá¸ßÊý¾Ý²¢ÐÐ¶È¡£
+åˆ©ç”¨ x86 SSE/AVX æŒ‡ä»¤åŒæ—¶å¤„ç†å¤šç»„æ•°æ®ï¼Œæé«˜æ•°æ®å¹¶è¡Œåº¦ã€‚
 
-### ÏûÏ¢À©Õ¹ÏòÁ¿»¯
+### æ¶ˆæ¯æ‰©å±•å‘é‡åŒ–
 
 ```cpp
-// W1 ¼ÆËã²¢ÐÐ 4 ¸öÔªËØ
+// W1 è®¡ç®—å¹¶è¡Œ 4 ä¸ªå…ƒç´ 
 for (int j = 0; j < 64; j += 4) {
     __m128i vW = _mm_loadu_si128((__m128i*)(W + j));
     __m128i vW4 = _mm_loadu_si128((__m128i*)(W + j + 4));
@@ -142,10 +160,10 @@ for (int j = 0; j < 64; j += 4) {
 }
 ```
 
-* Ã¿´Î¶ÁÐ´ 128 Î»£¨4¡Á32 Î»£©£¬ËÙ¶È \~4¡Á ±êÁ¿°æ±¾¡£
-* `_mm_xor_si128` ²¢ÐÐÖ´ÐÐ 4 Â·Òì»ò¡£
+* æ¯æ¬¡è¯»å†™ 128 ä½ï¼ˆ4Ã—32 ä½ï¼‰ï¼Œé€Ÿåº¦ \~4Ã— æ ‡é‡ç‰ˆæœ¬ã€‚
+* `_mm_xor_si128` å¹¶è¡Œæ‰§è¡Œ 4 è·¯å¼‚æˆ–ã€‚
 
-### ³£Á¿¼ÓÔØÏòÁ¿»¯
+### å¸¸é‡åŠ è½½å‘é‡åŒ–
 
 ```cpp
         __m128i tj_vec = _mm_set1_epi32(Tj[j]);
@@ -157,28 +175,32 @@ for (int j = 0; j < 64; j += 4) {
         uint32_t w1_val = _mm_extract_epi32(w1_vec, 0);
 ```
 
-* ¼õÉÙÄÚ´æ¼ÓÔØ·ÖÖ§£¬ÀûÓÃÏòÁ¿¼Ä´æÆ÷¹ã²¥¡£
+* å‡å°‘å†…å­˜åŠ è½½åˆ†æ”¯ï¼Œåˆ©ç”¨å‘é‡å¯„å­˜å™¨å¹¿æ’­ã€‚
 
 ---
 
-## ÓÅ»¯µãËÄ£º¶àÏß³Ì²¢ÐÐ
+## ä¼˜åŒ–ç‚¹å››ï¼šå¤šçº¿ç¨‹å¹¶è¡Œ
 
-### ÓÅ»¯¶¯»ú
+### ä¼˜åŒ–åŠ¨æœº
 
-¶Ô¶à·Ö×éµÄ´óÏûÏ¢£¬·Ö¿é²¢ÐÐÑ¹Ëõ£¬ÌáÉý¶àºËÀûÓÃÂÊ¡£
+å¯¹å¤§æ¶ˆæ¯ï¼Œå•çº¿ç¨‹ä¸²è¡ŒåŽ‹ç¼©æ‰€æœ‰ 64-byte åˆ†ç»„æ— æ³•å……åˆ†åˆ©ç”¨å¤šæ ¸ã€‚æ‹†åˆ†ä¸ºå¤šçº¿ç¨‹å¯ä½¿æ¯çº¿ç¨‹å„è‡ªæŒæœ‰ç‹¬ç«‹åˆå§‹çŠ¶æ€ IV
 
-### ¹Ø¼ü´úÂë
+å¹¶è¡ŒåŽ‹ç¼©åˆ†é…ç»™å®ƒçš„è‹¥å¹²å—
+
+ç„¶åŽæ±‡æ€»å„çº¿ç¨‹æœ€ç»ˆçŠ¶æ€ä¸ºâ€œä¼ªå—â€ï¼Œå†åšä¸€æ¬¡åŽ‹ç¼©åˆ°å…¨å±€
+
+### å…³é”®ä»£ç 
 
 ```cpp
 size_t NB = pad_len / 64;
 size_t NT = std::min(std::thread::hardware_concurrency(), NB);
 
-// 1. ×¼±¸Ã¿Ïß³Ì×´Ì¬¸±±¾
+// 1. å‡†å¤‡æ¯çº¿ç¨‹çŠ¶æ€å‰¯æœ¬
 std::vector<std::vector<uint32_t>> thread_states(NT, std::vector<uint32_t>(8));
 for (size_t t = 0; t < NT; ++t)
     std::memcpy(thread_states[t].data(), IV, sizeof(IV));
 
-// 2. ²¢ÐÐÑ¹Ëõ
+// 2. å¹¶è¡ŒåŽ‹ç¼©
 size_t offset = 0;
 for (size_t t = 0; t < NT; ++t) {
     size_t cnt = NB/NT + (t < NB%NT ? 1 : 0);
@@ -190,7 +212,7 @@ for (size_t t = 0; t < NT; ++t) {
     offset += cnt;
 }
 
-// 3. µÈ´ý²¢ºÏ²¢
+// 3. ç­‰å¾…å¹¶åˆå¹¶
 for (auto &th : threads) th.join();
 std::memcpy(state, IV, sizeof(IV));
 for (size_t t = 0; t < NT; ++t) {
@@ -200,9 +222,6 @@ for (size_t t = 0; t < NT; ++t) {
     sm3_compress_optimized(state, tmpblk);
 }
 ```
-
-* **×´Ì¬¸±±¾**£ºÃ¿Ïß³Ì¶ÀÁ¢ `state`£¬²¢ÐÐÎÞ³åÍ»¡£
-* **½á¹ûºÏ²¢**£º¸÷Ïß³ÌÖÐ¼ä `state` ÊÓ×÷ÐÂ·Ö×éÑ¹Ëõ¡£
 
 ---
 
