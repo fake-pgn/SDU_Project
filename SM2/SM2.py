@@ -2,33 +2,67 @@ import secrets
 import binascii
 from hashlib import sha256
 from gmssl import sm3, func
+import functools
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 # SM2椭圆曲线参数
 ECC_A = 0x787968B4FA32C3FD2417842E73BBFEFF2F3C848B6831D7E0EC65228B3937E498
 ECC_B = 0x63E4C6D3B23B0C849CF84241484BFE48F61D59A5B16BA06E6E12D1DA27C5249A
-FIELD_PRIME = 0x8542D69E4C044F18E8B92435BF6FF7DE457283915C45517D722EDB8B08F1DFC3
-GROUP_ORDER = 0x8542D69E4C044F18E8B92435BF6FF7DD297720630485628D5AE74EE7C32E79B7
-BASE_X = 0x421DEBD61B62EAB6746434EBC3CC315E32220B3BADD50BDC4C4E6C147FEDD43D
-BASE_Y = 0x0680512BCBB42C07D47349D2153B70C4E5D7FDFCBFA36EA1A85841B9E46E09A2
-BASE_POINT = (BASE_X, BASE_Y)
+P = 0x8542D69E4C044F18E8B92435BF6FF7DE457283915C45517D722EDB8B08F1DFC3
+n = 0x8542D69E4C044F18E8B92435BF6FF7DD297720630485628D5AE74EE7C32E79B7
+X = 0x421DEBD61B62EAB6746434EBC3CC315E32220B3BADD50BDC4C4E6C147FEDD43D
+Y = 0x0680512BCBB42C07D47349D2153B70C4E5D7FDFCBFA36EA1A85841B9E46E09A2
+G = (X, Y)
 HASH_SIZE = 32
+
+#  预计算缓存
+ZA_CACHE = {}
+POINT_ADD_CACHE = {}
+MOD_INV_CACHE = {}
+
+
+# 常数时间比较
+def constant_time_compare(a, b):
+    """常数时间比较，防止时序攻击"""
+    if len(a) != len(b):
+        return False
+
+    result = 0
+    for x, y in zip(a, b):
+        result |= x ^ y
+    return result == 0
 
 
 def mod_inv(value, modulus):
     """计算模逆元 (扩展欧几里得算法)"""
+    # 优化: 使用缓存
+    cache_key = (value, modulus)
+    if cache_key in MOD_INV_CACHE:
+        return MOD_INV_CACHE[cache_key]
+
     if value == 0:
         return 0
     lm, hm = 1, 0
     low, high = value % modulus, modulus
+
     while low > 1:
         ratio = high // low
         nm, new = hm - lm * ratio, high - low * ratio
         lm, low, hm, high = nm, new, lm, low
-    return lm % modulus
+
+    result = lm % modulus
+    MOD_INV_CACHE[cache_key] = result
+    return result
 
 
 def ec_point_add(pt1, pt2):
     """椭圆曲线点加法"""
+    # 使用缓存
+    cache_key = (pt1, pt2)
+    if cache_key in POINT_ADD_CACHE:
+        return POINT_ADD_CACHE[cache_key]
+
     if pt1 == (0, 0):
         return pt2
     if pt2 == (0, 0):
@@ -39,21 +73,26 @@ def ec_point_add(pt1, pt2):
 
     if x1 == x2:
         if y1 == y2:
-            slope = (3 * x1 * x1 + ECC_A) * mod_inv(2 * y1, FIELD_PRIME)
+            slope = (3 * x1 * x1 + ECC_A) * mod_inv(2 * y1, P)
         else:
-            return (0, 0)
+            result = (0, 0)
+            POINT_ADD_CACHE[cache_key] = result
+            return result
     else:
-        slope = (y2 - y1) * mod_inv(x2 - x1, FIELD_PRIME)
+        slope = (y2 - y1) * mod_inv(x2 - x1, P)
 
-    slope %= FIELD_PRIME
-    x3 = (slope * slope - x1 - x2) % FIELD_PRIME
-    y3 = (slope * (x1 - x3) - y1) % FIELD_PRIME
-    return (x3, y3)
+    slope %= P
+    x3 = (slope * slope - x1 - x2) % P
+    y3 = (slope * (x1 - x3) - y1) % P
+
+    result = (x3, y3)
+    POINT_ADD_CACHE[cache_key] = result
+    return result
 
 
 def ec_point_mult(scalar, point):
     """标量点乘 (高效double-and-add算法)"""
-    if scalar == 0 or scalar >= GROUP_ORDER:
+    if scalar == 0 or scalar >= n:
         raise ValueError("无效的标量值")
 
     result = (0, 0)  # 无穷远点
@@ -68,8 +107,14 @@ def ec_point_mult(scalar, point):
     return result
 
 
+@functools.lru_cache(maxsize=128)
 def compute_user_hash(user_id, pub_x, pub_y):
     """计算用户标识哈希ZA (SM3)"""
+    # 使用缓存
+    cache_key = (user_id, pub_x, pub_y)
+    if cache_key in ZA_CACHE:
+        return ZA_CACHE[cache_key]
+
     id_bitlen = len(user_id.encode('utf-8')) * 8
     id_bitlen_bytes = id_bitlen.to_bytes(2, 'big')
 
@@ -78,8 +123,8 @@ def compute_user_hash(user_id, pub_x, pub_y):
         user_id.encode('utf-8'),
         ECC_A.to_bytes(32, 'big'),
         ECC_B.to_bytes(32, 'big'),
-        BASE_X.to_bytes(32, 'big'),
-        BASE_Y.to_bytes(32, 'big'),
+        X.to_bytes(32, 'big'),
+        Y.to_bytes(32, 'big'),
         pub_x.to_bytes(32, 'big'),
         pub_y.to_bytes(32, 'big')
     ]
@@ -87,18 +132,21 @@ def compute_user_hash(user_id, pub_x, pub_y):
 
     # 计算SM3哈希
     hash_bytes = func.bytes_to_list(joint_bytes)
-    return sm3.sm3_hash(hash_bytes)
+    result = sm3.sm3_hash(hash_bytes)
+
+    ZA_CACHE[cache_key] = result
+    return result
 
 
 def generate_keypair():
     """生成SM2密钥对"""
-    private = secrets.randbelow(GROUP_ORDER - 1) + 1
-    public = ec_point_mult(private, BASE_POINT)
+    private = secrets.randbelow(n - 1) + 1
+    public = ec_point_mult(private, G)
     return private, public
 
 
 def generate_signature(private_key, message, user_id, public_key):
-    """生成SM2签名 (RFC6979风格随机数生成)"""
+    """生成SM2签名"""
     # 计算ZA
     za = compute_user_hash(user_id, public_key[0], public_key[1])
     msg_full = za + message
@@ -108,18 +156,19 @@ def generate_signature(private_key, message, user_id, public_key):
     hash_value = sm3.sm3_hash(func.bytes_to_list(msg_bytes))
     e_value = int(hash_value, 16)
 
-    k_seed = str(private_key) + sm3.sm3_hash(func.bytes_to_list(message.encode('utf-8')))
-    k_value = int(sha256(k_seed.encode()).hexdigest(), 16) % GROUP_ORDER
+    # 全的随机数生成
+    k_seed = str(private_key) + message + str(time.time_ns())
+    k_value = int(sha256(k_seed.encode()).hexdigest(), 16) % n
 
-    temp_point = ec_point_mult(k_value, BASE_POINT)
+    temp_point = ec_point_mult(k_value, G)
     x_temp = temp_point[0]
 
-    r_value = (e_value + x_temp) % GROUP_ORDER
-    if r_value == 0 or r_value + k_value == GROUP_ORDER:
+    r_value = (e_value + x_temp) % n
+    if r_value == 0 or r_value + k_value == n:
         return None
 
-    s_value = mod_inv(1 + private_key, GROUP_ORDER)
-    s_value = s_value * (k_value - r_value * private_key) % GROUP_ORDER
+    s_value = mod_inv(1 + private_key, n)
+    s_value = s_value * (k_value - r_value * private_key) % n
 
     return (r_value, s_value)
 
@@ -128,7 +177,7 @@ def verify_signature(public_key, message, user_id, signature):
     """验证SM2签名"""
     r_value, s_value = signature
 
-    if not (0 < r_value < GROUP_ORDER and 0 < s_value < GROUP_ORDER):
+    if not (0 < r_value < n and 0 < s_value < n):
         return False
 
     # 计算ZA
@@ -141,16 +190,17 @@ def verify_signature(public_key, message, user_id, signature):
     e_value = int(hash_value, 16)
 
     # 计算t值
-    t_value = (r_value + s_value) % GROUP_ORDER
+    t_value = (r_value + s_value) % n
 
     # 计算验证点
-    point1 = ec_point_mult(s_value, BASE_POINT)
+    point1 = ec_point_mult(s_value, G)
     point2 = ec_point_mult(t_value, public_key)
     result_point = ec_point_add(point1, point2)
 
     # 计算R值并验证
-    R_calculated = (e_value + result_point[0]) % GROUP_ORDER
-    return R_calculated == r_value
+    R_calculated = (e_value + result_point[0]) % n
+
+    return constant_time_compare(r_value.to_bytes(32, 'big'), R_calculated.to_bytes(32, 'big'))
 
 
 def kdf(z, klen):
@@ -176,10 +226,10 @@ def sm2_encrypt(public_key, plaintext):
     if public_key == (0, 0):
         raise ValueError("公钥无效 (无穷远点)")
 
-    k = secrets.randbelow(GROUP_ORDER - 1) + 1
+    k = secrets.randbelow(n - 1) + 1
 
     # 计算C1 = k * G
-    C1_point = ec_point_mult(k, BASE_POINT)
+    C1_point = ec_point_mult(k, G)
     C1_x, C1_y = C1_point
 
     # 计算点(x2, y2) = k * Pb
@@ -245,10 +295,49 @@ def sm2_decrypt(private_key, ciphertext):
     hash_list = func.bytes_to_list(input_C3)
     u = bytes.fromhex(sm3.sm3_hash(hash_list))
 
-    if u != C3:
+    #使用常数时间比较
+    if not constant_time_compare(u, C3):
         raise ValueError("哈希验证失败，密文可能被篡改")
 
     return plaintext
+
+
+def batch_verify_signatures(public_key, messages, user_ids, signatures):
+    """批量验证SM2签名"""
+    with ThreadPoolExecutor() as executor:
+        # 创建参数列表
+        params = [(public_key, msg, uid, sig) for msg, uid, sig in zip(messages, user_ids, signatures)]
+
+        # 并行验证
+        results = list(executor.map(lambda p: verify_signature(*p), params))
+
+    return results
+
+
+# 点压缩
+def compress_point(point):
+    """压缩椭圆曲线点"""
+    x, y = point
+    prefix = 0x02 if y % 2 == 0 else 0x03
+    return prefix.to_bytes(1, 'big') + x.to_bytes(32, 'big')
+
+
+def decompress_point(compressed):
+    """解压缩椭圆曲线点"""
+    prefix = compressed[0]
+    x = int.from_bytes(compressed[1:], 'big')
+
+    # 计算 y^2 = x^3 + a*x + b mod p
+    y_sq = (x * x * x + ECC_A * x + ECC_B) % P
+
+    # 求解模平方根
+    y = pow(y_sq, (P + 1) // 4, P)
+
+    # 根据前缀选择正确的y值
+    if prefix == 0x02:
+        return (x, y if y % 2 == 0 else P - y)
+    else:  # prefix == 0x03
+        return (x, y if y % 2 == 1 else P - y)
 
 
 def main():
@@ -287,13 +376,13 @@ def main():
         e_value = int(hash_value, 16)
         print(f"消息哈希值: {hex(e_value)}")
 
-        t_value = (sig[0] + sig[1]) % GROUP_ORDER
-        point1 = ec_point_mult(sig[1], BASE_POINT)
+        t_value = (sig[0] + sig[1]) % n
+        point1 = ec_point_mult(sig[1], G)
         point2 = ec_point_mult(t_value, public)
         result_point = ec_point_add(point1, point2)
         print(f"验证点坐标: ({hex(result_point[0])}, {hex(result_point[1])})")
 
-        R_calculated = (e_value + result_point[0]) % GROUP_ORDER
+        R_calculated = (e_value + result_point[0]) % n
         print(f"计算得到的R': {hex(R_calculated)}")
         print(f"签名中的r: {hex(sig[0])}")
 
@@ -311,7 +400,7 @@ def main():
         # 加密
         ciphertext = sm2_encrypt(public, plaintext)
         print(f"密文长度: {len(ciphertext)}字节")
-        print(f"密文（二进制字节流）: {ciphertext}")
+        print(f"密文（十六进制）: {binascii.hexlify(ciphertext).decode()}")
 
         # 解密
         decrypted = sm2_decrypt(private, ciphertext)
@@ -349,6 +438,38 @@ def main():
         print(f"加解密过程中出错: {str(e)}")
         import traceback
         traceback.print_exc()
+
+    # 批量验证演示
+    print("\n===== 批量签名验证测试 =====")
+    num_signatures = 10
+    messages = [f"消息{i}" for i in range(num_signatures)]
+    user_ids = [f"用户{i}" for i in range(num_signatures)]
+    signatures = []
+
+    # 生成多个签名
+    for i in range(num_signatures):
+        sig = generate_signature(private, messages[i], user_ids[i], public)
+        while sig is None:
+            sig = generate_signature(private, messages[i], user_ids[i], public)
+        signatures.append(sig)
+
+    # 批量验证
+    start_time = time.time()
+    results = batch_verify_signatures(public, messages, user_ids, signatures)
+    batch_time = time.time() - start_time
+
+    # 单个验证
+    single_times = []
+    for i in range(num_signatures):
+        start = time.time()
+        verify_signature(public, messages[i], user_ids[i], signatures[i])
+        single_times.append(time.time() - start)
+
+    avg_single_time = sum(single_times) / num_signatures
+
+    print(f"批量验证 {num_signatures} 个签名耗时: {batch_time:.4f}秒")
+    print(f"单个验证平均耗时: {avg_single_time:.6f}秒")
+    print(f"验证结果: {all(results)}")
 
 
 if __name__ == "__main__":
