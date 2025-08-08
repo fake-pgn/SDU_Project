@@ -1,4 +1,4 @@
-﻿#include <cstdint>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <immintrin.h>
@@ -127,6 +127,81 @@ namespace CryptoPrimitives {
 } // namespace CryptoPrimitives
 
 class SM4Cipher {
+private:
+    // ==================== 添加的T表优化部分 ====================
+    // T表优化相关数据结构
+    static uint32_t T[4][256];
+    static bool T_Table_Initialized;
+
+    // 初始化T表
+    static void InitTTable() {
+        if (T_Table_Initialized) return;
+
+        for (int i = 0; i < 256; i++) {
+            // 将字节放入32位字的不同位置并应用线性变换
+            uint32_t b0 = static_cast<uint32_t>(SBox[i]) << 24;
+            uint32_t b1 = static_cast<uint32_t>(SBox[i]) << 16;
+            uint32_t b2 = static_cast<uint32_t>(SBox[i]) << 8;
+            uint32_t b3 = static_cast<uint32_t>(SBox[i]);
+
+            // 应用线性变换 L(B) = B ⊕ (B <<< 2) ⊕ (B <<< 10) ⊕ (B <<< 18) ⊕ (B <<< 24)
+            T[0][i] = b0 ^ CIRCULAR_SHIFT(b0, 2) ^ CIRCULAR_SHIFT(b0, 10) ^ CIRCULAR_SHIFT(b0, 18) ^ CIRCULAR_SHIFT(b0, 24);
+            T[1][i] = b1 ^ CIRCULAR_SHIFT(b1, 2) ^ CIRCULAR_SHIFT(b1, 10) ^ CIRCULAR_SHIFT(b1, 18) ^ CIRCULAR_SHIFT(b1, 24);
+            T[2][i] = b2 ^ CIRCULAR_SHIFT(b2, 2) ^ CIRCULAR_SHIFT(b2, 10) ^ CIRCULAR_SHIFT(b2, 18) ^ CIRCULAR_SHIFT(b2, 24);
+            T[3][i] = b3 ^ CIRCULAR_SHIFT(b3, 2) ^ CIRCULAR_SHIFT(b3, 10) ^ CIRCULAR_SHIFT(b3, 18) ^ CIRCULAR_SHIFT(b3, 24);
+        }
+
+        T_Table_Initialized = true;
+    }
+
+    // 使用T表优化的块处理函数（非SIMD路径）
+    static void ProcessBlock_TTable(const uint8_t* input, uint8_t* output,
+        const uint32_t* round_keys, bool decrypt_mode) {
+        // 确保T表已初始化
+        InitTTable();
+
+        // 将输入转换为4个32位字（大端序）
+        uint32_t state[4];
+        for (int i = 0; i < 4; i++) {
+            state[i] = (input[i * 4] << 24) |
+                (input[i * 4 + 1] << 16) |
+                (input[i * 4 + 2] << 8) |
+                input[i * 4 + 3];
+        }
+
+        // 32轮加密/解密
+        for (int round = 0; round < 32; round++) {
+            // 获取当前轮密钥
+            uint32_t rk = decrypt_mode ? round_keys[31 - round] : round_keys[round];
+
+            // 计算T函数输入
+            uint32_t x = state[1] ^ state[2] ^ state[3] ^ rk;
+
+            // 使用T表优化计算T函数
+            uint32_t t = T[0][(x >> 24) & 0xFF] ^
+                T[1][(x >> 16) & 0xFF] ^
+                T[2][(x >> 8) & 0xFF] ^
+                T[3][x & 0xFF];
+
+            // 更新状态
+            uint32_t new_state = state[0] ^ t;
+            state[0] = state[1];
+            state[1] = state[2];
+            state[2] = state[3];
+            state[3] = new_state;
+        }
+
+        // 输出转换回字节数组（大端序）
+        // 注：SM4标准要求输出为反序
+        for (int i = 0; i < 4; i++) {
+            output[i * 4] = (state[3 - i] >> 24) & 0xFF;
+            output[i * 4 + 1] = (state[3 - i] >> 16) & 0xFF;
+            output[i * 4 + 2] = (state[3 - i] >> 8) & 0xFF;
+            output[i * 4 + 3] = state[3 - i] & 0xFF;
+        }
+    }
+    // ==================== T表优化部分结束 ====================
+
 public:
     static void Gen_Round_Keys(const uint8_t* key, uint32_t* round_keys) {
         uint32_t k[4];
@@ -240,7 +315,17 @@ public:
 
         _mm_storeu_si128(reinterpret_cast<__m128i*>(output), result);
     }
+
+    // 添加T表版本作为备选方案
+    static void ProcessBlock_TTable1(const uint8_t* input, uint8_t* output,
+        const uint32_t* round_keys, bool decrypt_mode) {
+        return ProcessBlock_TTable(input, output, round_keys, decrypt_mode);
+    }
 };
+
+// 初始化T表静态成员
+uint32_t SM4Cipher::T[4][256] = {};
+bool SM4Cipher::T_Table_Initialized = false;
 
 // 性能测试函数
 void RunPerformanceTest(uint8_t* data, const uint32_t* round_keys,
@@ -248,14 +333,14 @@ void RunPerformanceTest(uint8_t* data, const uint32_t* round_keys,
     uint8_t temp[16];
     memcpy(temp, data, 16);
 
-    
+    // 预热缓存
     for (int i = 0; i < 1000; i++) {
-        SM4Cipher::ProcessBlock(temp, data, round_keys, mode);
+        SM4Cipher::ProcessBlock_TTable1(temp, data, round_keys, mode);
     }
 
     TimePoint start = std::chrono::steady_clock::now();
     for (int i = 0; i < iterations; i++) {
-        SM4Cipher::ProcessBlock(temp, data, round_keys, mode);
+        SM4Cipher::ProcessBlock_TTable1(temp, data, round_keys, mode);
     }
     TimePoint end = std::chrono::steady_clock::now();
 
@@ -292,12 +377,12 @@ int main() {
 
     // 单次加密测试
     uint8_t cipher[16];
-    SM4Cipher::ProcessBlock(test_data, cipher, round_keys, false);
+    SM4Cipher::ProcessBlock_TTable1(test_data, cipher, round_keys, false);
     DisplayData("Ciphertext (single run)", cipher, 16);
 
     // 单次解密测试
     uint8_t decrypted[16];
-    SM4Cipher::ProcessBlock(cipher, decrypted, round_keys, true);
+    SM4Cipher::ProcessBlock_TTable1(cipher, decrypted, round_keys, true);
     DisplayData("Decrypted plaintext (single run)", decrypted, 16);
 
     // 性能测试
