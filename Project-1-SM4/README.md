@@ -171,6 +171,8 @@ inline __m128i MatrixMul(__m128i x, __m128i upper, __m128i lower) {
     k_vec = _mm_set1_epi32((mode) ? round_keys[31 - (iter)] : round_keys[iter]); \
     ...
 ```
+---
+
 ## SM4-GCM工作模式
 SM4-GCM 模式结合了分组密码 SM4 和 GCM（Galois/Counter Mode）认证加密机制。GCM 模式利用计数器（Counter）模式进行数据加密，同时使用 GHASH 算法实现消息认证，确保数据的完整性和真实性。
 ![SM4-GCM](a.png)
@@ -258,6 +260,9 @@ void RunPerformanceTest(uint8_t* data, const uint32_t* round_keys,
 ![SM4 加解密示意图](b.png "测试结果")
 
 我们可以看到，经过优化后，SM4的性能提升巨大，达到硬件水准。
+
+---
+
 ### SM4-GCM功能测试
 测试代码如下，我们对其加解密及认证功能进行测试，并通过修改一位标签看是否还能解密成功，来判断认证功能是否有效。
 
@@ -354,3 +359,4 @@ void TestSM4_GCM() {
 
 ![SM4-GCM功能测试](c.png "测试结果")
 
+---
